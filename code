@@ -1,0 +1,89 @@
+const express = require('express')
+const bcrypt = require('bcrypt')
+const sqlite3 = require('sqlite3')
+const {open} = require('sqlite')
+const path = require('path')
+
+const app = express()
+app.use(express.json())
+
+const dbPath = path.join(__dirname, 'userData.db')
+let db = null
+
+// Initialize DB and Server
+const initializeDBAndServer = async () => {
+  try {
+    db = await open({
+      filename: dbPath,
+      driver: sqlite3.Database,
+    })
+    app.listen(3000, () =>
+      console.log('Server running at http://localhost:3000/'),
+    )
+  } catch (e) {
+    console.log(`DB Error: ${e.message}`)
+    process.exit(1)
+  }
+}
+initializeDBAndServer()
+
+app.use(express.json())
+// api 1
+
+app.post('/register', async (request, response) => {
+  const {username, name, password, gender, location} = request.body
+  const userDbQurey = `SELECT * FROM user WHERE username= ?`
+  const dbUser = await db.get(userDbQurey, [username])
+  if (dbUser !== undefined) {
+    response.status(400)
+    response.send('User already exists')
+  } else if (password.length < 5) {
+    response.status(400)
+    response.send('Password is too short')
+  } else {
+    const hashPassword = await bcrypt.hash(password, 10)
+    const createQurery = `INSERT INTO user (username,name,password,gender,location) VALUES (?,?,?,?,?)`
+    await db.run(createQurery, [username, name, hashPassword, gender, location])
+    response.status(200).send('User created successfully')
+  }
+})
+
+// api 2
+
+app.post('/login', async (request, response) => {
+  const {username, password} = request.body
+  const userDbQuery = `SELECT * FROM user WHERE username=?`
+  const userDb = await db.get(userDbQuery, [username])
+  if (userDb === undefined) {
+    response.status(400).send('Invalid user')
+  } else {
+    const isPasswordCrt = await bcrypt.compare(password, userDb.password)
+    if (isPasswordCrt) {
+      response.status(200).send('Login success!')
+    } else {
+      response.status(400).send('Invalid password')
+    }
+  }
+})
+
+// api 3
+
+app.put('/change-password', async (request, response) => {
+  const {username, oldPassword, newPassword} = request.body
+  const userDbQuery = `SELECT * FROM user WHERE username=?`
+  const userDb = await db.get(userDbQuery, [username])
+  const isPasswordCrt = await bcrypt.compare(oldPassword, userDb.password)
+  if (isPasswordCrt === false) {
+    response.status(400).send('Invalid current password')
+  } else {
+    if (newPassword.length < 5) {
+      response.status(400).send('Password is too short')
+    } else {
+      const hashPassword = await bcrypt.hash(newPassword, 10)
+      const updatePassquery = `UPDATE user SET password = ? WHERE username = ?`
+      await db.run(updatePassquery, [hashPassword, username])
+      response.status(200).send('Password updated')
+    }
+  }
+})
+module.exports = app
